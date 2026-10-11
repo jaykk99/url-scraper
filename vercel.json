@@ -1,0 +1,1 @@
+{ "functions": { "api/scrape.js": { "maxDuration": 25 } } }

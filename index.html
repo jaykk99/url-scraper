@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>URL Scraper</title>
+<style>
+  body { background:#0f172a; color:#e2e8f0; font-family:system-ui,sans-serif; margin:0; padding:24px; }
+  main { max-width:760px; margin:0 auto; }
+  h1 { color:#fff; }
+  label { display:block; margin:16px 0 6px; color:#94a3b8; font-size:14px; }
+  input, textarea { width:100%; background:#1e293b; border:1px solid #334155; color:#e2e8f0;
+    border-radius:8px; padding:12px; font-size:15px; box-sizing:border-box; }
+  textarea { font-family:monospace; }
+  button { background:#22d3ee; color:#0b1220; border:0; border-radius:8px; padding:12px 28px;
+    font-size:16px; font-weight:700; margin-top:18px; cursor:pointer; }
+  button:disabled { opacity:.5; }
+  #out { margin-top:24px; background:#0b1220; border:1px solid #334155; border-radius:8px;
+    padding:16px; white-space:pre-wrap; word-break:break-all; font-family:monospace; font-size:13px;
+    max-height:60vh; overflow:auto; }
+  .hint { color:#64748b; font-size:13px; margin-top:6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>URL Scraper</h1>
+  <label>URL to scrape</label>
+  <input id="url" placeholder="https://example.com/page">
+  <label>Pattern (regex)</label>
+  <textarea id="pattern" rows="2" placeholder="[\w.-]+@[\w.-]+\.\w+"></textarea>
+  <div class="hint">Any regex. Example email: [\w.-]+@[\w.-]+\.\w+ &nbsp;|&nbsp; Example prices: \$\d+\.\d{2}</div>
+  <label>Flags</label>
+  <input id="flags" value="gi" style="width:120px">
+  <br>
+  <button id="go" onclick="run()">Scrape</button>
+  <div id="out">Results appear here.</div>
+</main>
+<script>
+async function run() {
+  const out = document.getElementById('out');
+  const btn = document.getElementById('go');
+  btn.disabled = true;
+  out.textContent = 'Scraping...';
+  try {
+    const r = await fetch('/api/scrape', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        url: document.getElementById('url').value.trim(),
+        pattern: document.getElementById('pattern').value,
+        flags: document.getElementById('flags').value.trim(),
+        maxResults: 200
+      })
+    });
+    const j = await r.json();
+    if (j.error) { out.textContent = 'Error: ' + j.error; return; }
+    out.textContent = j.count + ' match(es)' + (j.truncated ? ' (truncated)' : '') + '\n\n' + j.matches.join('\n');
+  } catch (e) {
+    out.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
