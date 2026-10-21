@@ -23,3 +23,29 @@ vercel dev
 ## API
 
 `POST /api/scrape` with JSON body `{ "url": "...", "pattern": "...", "flags": "gi", "maxResults": 200 }` returns `{ "count": n, "matches": [...], "truncated": bool }`.
+
+## Modes
+
+`POST /api/scrape` takes `{ "url", "mode", ... }`:
+
+| mode | extra params | returns |
+|---|---|---|
+| `matches` | `pattern`, `flags`, `maxResults` | `{ count, matches[], truncated }` |
+| `markdown` | — | `{ markdown }` (readability-extracted page as Markdown) |
+| `links` | — | `{ count, links: [{href, text}] }` |
+| `meta` | — | `{ title, description, headings[], wordCount }` |
+| `text` | — | `{ text }` (main content, boilerplate stripped) |
+
+Common options: `respectRobots` (default true — refuses pages disallowed by robots.txt, returns 403 with the reason), `mainContentOnly` (default true — `<article>`/`<main>` preferred, nav/header/footer/aside stripped).
+
+Bulk mode in the UI scrapes a list of URLs with an adjustable concurrency limit (1-10) and a progress bar, then exports everything as JSON.
+
+## Extraction logic
+
+All extraction lives in `api/lib.js` — pure functions, no I/O. Run the unit tests:
+
+```bash
+node --test test/lib.test.js
+```
+
+Covers: SSRF host blocklist (private IPv4/IPv6, decimal/hex loopback forms), robots.txt parsing (named group beats wildcard, longest-match wins), main-content extraction, Markdown conversion (headings, links, images, lists, blockquotes, tables), link extraction with dedupe, meta extraction, and regex matching with caps.

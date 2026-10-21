@@ -6,60 +6,216 @@
 <title>URL Scraper</title>
 <style>
   body { background:#0f172a; color:#e2e8f0; font-family:system-ui,sans-serif; margin:0; padding:24px; }
-  main { max-width:760px; margin:0 auto; }
+  main { max-width:860px; margin:0 auto; }
   h1 { color:#fff; }
-  label { display:block; margin:16px 0 6px; color:#94a3b8; font-size:14px; }
-  input, textarea { width:100%; background:#1e293b; border:1px solid #334155; color:#e2e8f0;
+  h2 { color:#fff; font-size:18px; margin-top:40px; }
+  label { display:block; margin:16px 0 6px; color:#94a8c0; font-size:14px; }
+  input, textarea, select { width:100%; background:#1e293b; border:1px solid #334155; color:#e2e8f0;
     border-radius:8px; padding:12px; font-size:15px; box-sizing:border-box; }
   textarea { font-family:monospace; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:180px; }
   button { background:#22d3ee; color:#0b1220; border:0; border-radius:8px; padding:12px 28px;
     font-size:16px; font-weight:700; margin-top:18px; cursor:pointer; }
-  button:disabled { opacity:.5; }
+  button:disabled { opacity:.5; cursor:wait; }
+  button.ghost { background:#1e293b; color:#e2e8f0; border:1px solid #334155; font-size:14px;
+    padding:9px 18px; margin-right:10px; }
   #out { margin-top:24px; background:#0b1220; border:1px solid #334155; border-radius:8px;
     padding:16px; white-space:pre-wrap; word-break:break-all; font-family:monospace; font-size:13px;
     max-height:60vh; overflow:auto; }
   .hint { color:#64748b; font-size:13px; margin-top:6px; }
+  .check { display:flex; align-items:center; gap:10px; margin-top:16px; color:#cbd5e1; font-size:14px; }
+  .check input { width:auto; }
+  #progress { height:8px; background:#1e293b; border-radius:4px; margin-top:18px; display:none; }
+  #progress > div { height:100%; background:#22d3ee; border-radius:4px; width:0; transition:width .2s; }
+  .note { background:#1e293b; border:1px solid #334155; border-radius:8px; padding:12px 16px;
+    font-size:14px; color:#cbd5e1; margin-top:18px; }
+  .note a { color:#22d3ee; }
 </style>
 </head>
 <body>
 <main>
   <h1>URL Scraper</h1>
+  <p class="hint">Fetches public pages server-side and extracts what you need. Private/local hosts are blocked, fetches time out after 20s, and robots.txt is respected by default.</p>
+
+  <div class="note">
+    <strong>Status:</strong> the hosted API is offline while the Vercel team is paused.
+    Run it locally with <code>vercel dev</code> (see README) and this page works fully.
+  </div>
+
+  <h2>Single page</h2>
   <label>URL to scrape</label>
   <input id="url" placeholder="https://example.com/page">
-  <label>Pattern (regex)</label>
-  <textarea id="pattern" rows="2" placeholder="[\w.-]+@[\w.-]+\.\w+"></textarea>
-  <div class="hint">Any regex. Example email: [\w.-]+@[\w.-]+\.\w+ &nbsp;|&nbsp; Example prices: \$\d+\.\d{2}</div>
-  <label>Flags</label>
-  <input id="flags" value="gi" style="width:120px">
+  <div class="row">
+    <div>
+      <label>Mode</label>
+      <select id="mode">
+        <option value="matches">Regex matches</option>
+        <option value="markdown">Page as Markdown</option>
+        <option value="links">All links (JSON)</option>
+        <option value="meta">Title / headings / word count</option>
+        <option value="text">Main text only</option>
+      </select>
+    </div>
+    <div>
+      <label>Flags</label>
+      <input id="flags" value="gi" style="width:120px">
+    </div>
+    <div>
+      <label>Max results</label>
+      <input id="maxResults" type="number" value="200" min="1" max="1000" style="width:120px">
+    </div>
+  </div>
+  <div id="patternWrap">
+    <label>Pattern (regex)</label>
+    <textarea id="pattern" rows="2" placeholder="[\w.-]+@[\w.-]+\.\w+"></textarea>
+    <div class="hint">Example emails: [\w.-]+@[\w.-]+\.\w+ &nbsp;|&nbsp; Example prices: \$\d+\.\d{2}</div>
+  </div>
+  <label class="check"><input type="checkbox" id="robots" checked> Respect robots.txt (refuse pages the site disallows)</label>
+  <label class="check"><input type="checkbox" id="mainOnly" checked> Main content only (skip nav, headers, footers)</label>
   <br>
-  <button id="go" onclick="run()">Scrape</button>
+  <button id="go" onclick="runSingle()">Scrape</button>
+  <button class="ghost" onclick="exportJSON()">Export JSON</button>
+  <button class="ghost" onclick="exportCSV()">Export CSV</button>
   <div id="out">Results appear here.</div>
+
+  <h2>Bulk scrape</h2>
+  <p class="hint">One URL per line. Runs the selected mode against each URL with a concurrency limit, showing progress as it goes.</p>
+  <label>URLs (one per line)</label>
+  <textarea id="bulkUrls" rows="6" placeholder="https://example.com/a&#10;https://example.com/b"></textarea>
+  <div class="row">
+    <div>
+      <label>Concurrency</label>
+      <input id="concurrency" type="number" value="3" min="1" max="10" style="width:120px">
+    </div>
+  </div>
+  <br>
+  <button id="goBulk" onclick="runBulk()">Scrape all</button>
+  <button class="ghost" onclick="exportJSON()">Export JSON</button>
+  <div id="progress"><div></div></div>
+  <div id="bulkOut"></div>
 </main>
 <script>
-async function run() {
+let lastResult = null;
+
+document.getElementById('mode').addEventListener('change', (e) => {
+  document.getElementById('patternWrap').style.display = e.target.value === 'matches' ? '' : 'none';
+});
+
+async function callApi(url) {
+  const r = await fetch('/api/scrape', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url,
+      pattern: document.getElementById('pattern').value,
+      flags: document.getElementById('flags').value.trim(),
+      maxResults: parseInt(document.getElementById('maxResults').value, 10) || 200,
+      mode: document.getElementById('mode').value,
+      respectRobots: document.getElementById('robots').checked,
+      mainContentOnly: document.getElementById('mainOnly').checked
+    })
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+
+function render(j) {
+  if (j.mode === 'matches') {
+    return j.count + ' match(es)' + (j.truncated ? ' (truncated)' : '') +
+      '\n\n' + j.matches.join('\n');
+  }
+  if (j.mode === 'markdown') return j.markdown;
+  if (j.mode === 'text') return j.text;
+  if (j.mode === 'links') {
+    return j.count + ' link(s)\n\n' + j.links.map((l) => (l.text ? l.text + '\n' : '') + l.href).join('\n\n');
+  }
+  if (j.mode === 'meta') {
+    return 'Title: ' + j.title + '\nDescription: ' + j.description +
+      '\nWords: ' + j.wordCount + '\n\nHeadings:\n' +
+      j.headings.map((h) => '  h' + h.level + ': ' + h.text).join('\n');
+  }
+  return JSON.stringify(j, null, 2);
+}
+
+async function runSingle() {
   const out = document.getElementById('out');
   const btn = document.getElementById('go');
+  const url = document.getElementById('url').value.trim();
+  if (!url) { out.textContent = 'Enter a URL first.'; return; }
   btn.disabled = true;
   out.textContent = 'Scraping...';
   try {
-    const r = await fetch('/api/scrape', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        url: document.getElementById('url').value.trim(),
-        pattern: document.getElementById('pattern').value,
-        flags: document.getElementById('flags').value.trim(),
-        maxResults: 200
-      })
-    });
-    const j = await r.json();
-    if (j.error) { out.textContent = 'Error: ' + j.error; return; }
-    out.textContent = j.count + ' match(es)' + (j.truncated ? ' (truncated)' : '') + '\n\n' + j.matches.join('\n');
+    const j = await callApi(url);
+    lastResult = j;
+    out.textContent = render(j);
   } catch (e) {
     out.textContent = 'Error: ' + e.message;
   } finally {
     btn.disabled = false;
   }
+}
+
+async function runBulk() {
+  const urls = document.getElementById('bulkUrls').value
+    .split('\n').map((u) => u.trim()).filter(Boolean);
+  const btn = document.getElementById('goBulk');
+  const bar = document.getElementById('progress');
+  const fill = bar.firstElementChild;
+  const bulkOut = document.getElementById('bulkOut');
+  if (!urls.length) { bulkOut.textContent = 'Paste at least one URL.'; return; }
+  const limit = Math.min(Math.max(parseInt(document.getElementById('concurrency').value, 10) || 3, 1), 10);
+  btn.disabled = true;
+  bar.style.display = 'block';
+  fill.style.width = '0';
+  bulkOut.innerHTML = '';
+  const results = new Array(urls.length);
+  let done = 0, next = 0;
+
+  async function worker() {
+    while (next < urls.length) {
+      const i = next++;
+      try {
+        results[i] = { url: urls[i], ok: true, data: await callApi(urls[i]) };
+      } catch (e) {
+        results[i] = { url: urls[i], ok: false, error: e.message };
+      }
+      done++;
+      fill.style.width = Math.round((done / urls.length) * 100) + '%';
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, urls.length) }, worker));
+  lastResult = { mode: 'bulk', count: results.length, results };
+  const okCount = results.filter((r) => r.ok).length;
+  const pre = document.createElement('pre');
+  pre.id = 'out';
+  pre.textContent = okCount + '/' + results.length + ' succeeded\n\n' +
+    results.map((r) => (r.ok ? '[OK] ' : '[FAIL] ') + r.url + (r.ok ? '' : ' -> ' + r.error)).join('\n');
+  bulkOut.appendChild(pre);
+  btn.disabled = false;
+}
+
+function download(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+function exportJSON() {
+  if (!lastResult) return;
+  download('scrape-results.json', JSON.stringify(lastResult, null, 2), 'application/json');
+}
+
+function exportCSV() {
+  if (!lastResult || lastResult.mode !== 'matches') {
+    alert('Run a regex scrape first, then export.');
+    return;
+  }
+  const rows = lastResult.matches.map((m) => '"' + m.replace(/"/g, '""') + '"');
+  download('scrape-results.csv', 'match\n' + rows.join('\n'), 'text/csv');
 }
 </script>
 </body>
