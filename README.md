@@ -10,7 +10,9 @@ Fetch any public web page and extract everything that matches a regex pattern (e
 
 ## Status
 
-The deployment is currently **offline: the Vercel team is paused**, so the hosted page cannot reach its API. The code is complete and verified locally; it goes live again as soon as the Vercel project is re-enabled or the repo is deployed to another host that runs Node serverless functions.
+**Heads-up (2026-10-23):** `url-scraper.vercel.app` currently returns 200 but serves an **unrelated Next.js static export** — not this app. `POST /api/scrape` answers 404, so the live scraper is effectively offline. Fix: unpause the Vercel team and redeploy this repo (or point the domain at the right project). Needs Jay.
+
+The code itself is complete and verified locally (14/14 `node --test`); it goes live again as soon as the right project is deployed.
 
 ## Run locally
 
