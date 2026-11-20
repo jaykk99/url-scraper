@@ -11,7 +11,7 @@ test("blocks private, reserved and mapped addresses before any network request",
   for (const ip of [
     "127.0.0.1", "0.0.0.0", "10.8.0.1", "172.17.0.2", "192.168.1.1",
     "169.254.169.254", "100.64.0.1", "198.18.0.1", "192.0.2.1",
-    "203.0.113.5", "224.0.0.1", "::1", "fe80::1", "fc00::1",
+    "203.0.113.5", "192.0.0.10", "224.0.0.1", "::1", "fe80::1", "fc00::1", "2001::1",
     "::ffff:127.0.0.1", "2001:db8::1",
   ]) assert.equal(publicIP(ip), false, ip);
   assert.equal(publicIP("8.8.8.8"), true);
