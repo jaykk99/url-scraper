@@ -9,6 +9,7 @@ import {
   isDisallowed,
   runRegex,
 } from "./lib.js";
+import { fetchPublicText } from "./safe-fetch.js";
 
 const UA = "Mozilla/5.0 (compatible; URLScraper/1.0)";
 const FETCH_TIMEOUT_MS = 20000;
@@ -19,26 +20,10 @@ function bad(res, status, error) {
 }
 
 async function fetchText(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const r = await fetch(url, {
-      signal: controller.signal,
-      headers: { "User-Agent": UA },
-      redirect: "follow",
-    });
-    return { res: r, text: (await r.text()).slice(0, MAX_BODY_BYTES) };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function finalHostOk(finalUrl) {
-  try {
-    return !hostBlocked(new URL(finalUrl).hostname);
-  } catch {
-    return false;
-  }
+  return fetchPublicText(url, {
+    timeout: FETCH_TIMEOUT_MS, maxBytes: MAX_BODY_BYTES,
+    headers: { "User-Agent": UA },
+  });
 }
 
 export default async function handler(req, res) {
@@ -90,7 +75,7 @@ export default async function handler(req, res) {
     try {
       const robotsUrl = `${parsed.protocol}//${parsed.host}/robots.txt`;
       const { res: rr, text } = await fetchText(robotsUrl);
-      if (rr.ok && rr.url && finalHostOk(rr.url)) {
+      if (rr.ok) {
         const rules = parseRobotsTxt(text, "URLScraper");
         const path = parsed.pathname + parsed.search;
         if (isDisallowed(rules, path)) {
@@ -115,12 +100,8 @@ export default async function handler(req, res) {
   if (!fetched.res.ok) {
     return bad(res, 502, "fetch failed: " + fetched.res.status);
   }
-  if (!finalHostOk(fetched.res.url)) {
-    return bad(res, 400, "redirected to a private host: blocked");
-  }
-
   const html = fetched.text;
-  const base = { url: fetched.res.url, fetchedAt: new Date().toISOString() };
+  const base = { url: fetched.finalUrl, fetchedAt: new Date().toISOString() };
 
   if (mode === "matches") {
     const corpus = mainContentOnly ? extractMainText(html) : html;
@@ -137,7 +118,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ ...base, mode, markdown: htmlToMarkdown(html) });
   }
   if (mode === "links") {
-    const links = extractLinks(html, fetched.res.url);
+    const links = extractLinks(html, fetched.finalUrl);
     return res
       .status(200)
       .json({ ...base, mode, count: links.length, links });
