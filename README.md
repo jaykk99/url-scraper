@@ -6,7 +6,7 @@ Fetch any public web page and extract everything that matches a regex pattern (e
 
 - `index.html` is the UI: a URL field, a pattern field, and flags.
 - `api/scrape.js` is a Vercel serverless function that fetches the target server-side (so browser CORS never blocks it), applies your regex, and returns up to 1000 matches.
-- Safety built in: private and local hosts are refused (SSRF guard), page bodies are capped at 2 MB, matches are capped at 500 chars each, and fetches time out after 20s.
+- Request safety: local/private/reserved IPs and DNS answers are refused, and every HTTP redirect is validated **before** it is followed (at most five hops). Page bodies are streamed with a hard 2 MB limit, matches are capped at 500 characters, and the request sequence times out after 20 seconds. These are defense-in-depth measures: production hosting must additionally block private-network egress to protect against DNS rebinding.
 
 ## Status
 
@@ -47,7 +47,7 @@ Bulk mode in the UI scrapes a list of URLs with an adjustable concurrency limit 
 All extraction lives in `api/lib.js` — pure functions, no I/O. Run the unit tests:
 
 ```bash
-node --test test/lib.test.js
+node --test test/*.test.js
 ```
 
 Covers: SSRF host blocklist (private IPv4/IPv6, decimal/hex loopback forms), robots.txt parsing (named group beats wildcard, longest-match wins), main-content extraction, Markdown conversion (headings, links, images, lists, blockquotes, tables), link extraction with dedupe, meta extraction, and regex matching with caps.
